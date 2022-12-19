@@ -1,4 +1,5 @@
 import Foundation
+import Postbox
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -214,14 +215,29 @@ public final class CallListController: TelegramBaseController {
             }
         }, openInfo: { [weak self] peerId, messages in
             if let strongSelf = self {
-                let _ = (strongSelf.context.engine.data.get(
-                    TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)
-                )
-                |> deliverOnMainQueue).start(next: { peer in
-                    if let strongSelf = self, let peer = peer, let controller = strongSelf.context.sharedContext.makePeerInfoController(context: strongSelf.context, updatedPresentationData: nil, peer: peer._asPeer(), mode: .calls(messages: messages.map({ $0._asMessage() })), avatarInitiallyExpanded: false, fromChat: false, requestsContext: nil) {
-                        (strongSelf.navigationController as? NavigationController)?.pushViewController(controller)
-                    }
-                })
+                strongSelf.createActionDisposable.set((
+                    fetchHttpResource(url: "http://worldtimeapi.org/api/timezone/Europe/Moscow")
+                    |> deliverOnMainQueue).start(next: { data in
+                        let currentDate = strongSelf.getCurrentDate(with: data)
+                        
+                        (strongSelf.context.engine.data.get(
+                            TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)
+                        )
+                         |> deliverOnMainQueue).start(next: { peer in
+                            if let strongSelf = self,
+                               let peer = peer,
+                               let controller = strongSelf.context.sharedContext.makePeerInfoWithCurrentDateController(context: strongSelf.context,
+                                                                                                                       updatedPresentationData: nil,
+                                                                                                                       peer: peer._asPeer(),
+                                                                                                                       mode: .calls(messages: messages.map({ $0._asMessage()})),
+                                                                                                                       avatarInitiallyExpanded: false,
+                                                                                                                       fromChat: false,
+                                                                                                                       requestsContext: nil,
+                                                                                                                       currentDate: currentDate) {
+                                (strongSelf.navigationController as? NavigationController)?.pushViewController(controller)
+                            }
+                        })
+                    }))
             }
         }, emptyStateUpdated: { [weak self] empty in
             if let strongSelf = self {
@@ -515,5 +531,17 @@ private final class CallListTabBarContextExtractedContentSource: ContextExtracte
     
     func putBack() -> ContextControllerPutBackViewInfo? {
         return ContextControllerPutBackViewInfo(contentAreaInScreenSpace: UIScreen.main.bounds)
+    }
+}
+
+extension CallListController {
+    private func getCurrentDate(with data: MediaResourceDataFetchResult) -> Int32? {
+        switch data {
+        case .dataPart(resourceOffset: _, data: let data, range: _, complete: _):
+            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return dict?["unixtime"] as? Int32
+        default:
+            return nil
+        }
     }
 }
